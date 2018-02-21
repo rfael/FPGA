@@ -1,0 +1,111 @@
+library IEEE; 
+use IEEE.STD_LOGIC_1164.ALL; 
+use IEEE.std_logic_unsigned.all;
+
+ENTITY US_015_DRIVER is
+	PORT(
+	ECHO:			in STD_LOGIC;
+	START:		in STD_LOGIC;
+	CLOCK_50:	in STD_LOGIC;
+	RESET:		in STD_LOGIC;
+	TRIG:			out STD_LOGIC;
+	DISTANCE:	out INTEGER range 0 to 1000:=0;
+	READY:		out STD_LOGIC:='0'
+	);
+END ENTITY;
+
+ARCHITECTURE MAIN of US_015_DRIVER is
+
+TYPE SENSOR_STATE_T is (IDLE_STATE, SEND_TRIG, MEASURE, DISPLAY, RELEASE_WAIT);
+TYPE MEASURE_STATE_T is (WAITING, COUNTING, ENDING);
+
+SIGNAL CURRENT_STATE:	SENSOR_STATE_T:=IDLE_STATE;
+SIGNAL MEASURE_STATE:	MEASURE_STATE_T:=ENDING;
+SIGNAL BUSY:			STD_LOGIC:='0';
+SIGNAL START_M:		STD_LOGIC:='0';
+SIGNAL TRIG_CNT:		INTEGER range 0 to 500:=0;
+SIGNAL ECHO_CNT:		INTEGER range 0 to 2000:=0;
+SIGNAL CM_CNT:			INTEGER range 0 to 2000:=0;
+
+BEGIN
+
+PROCESS(CLOCK_50, RESET)
+BEGIN
+	
+	IF RESET = '0' THEN
+		READY <= '0';
+		CURRENT_STATE <= IDLE_STATE;
+		MEASURE_STATE <= ENDING;
+		BUSY <= '0';
+	ELSE
+		IF rising_edge(CLOCK_50) THEN
+			START_M <= START;
+			CASE (CURRENT_STATE) is
+				when IDLE_STATE =>
+					READY <= '0';
+					IF BUSY = '0' and START_M = '0' THEN
+						CURRENT_STATE <= SEND_TRIG;
+					END IF;
+					
+				when SEND_TRIG =>
+					BUSY <= '1';
+					TRIG <= '1';
+					TRIG_CNT <= TRIG_CNT + 1;
+					CURRENT_STATE <= SEND_TRIG;
+					IF TRIG_CNT = 500 THEN
+						TRIG_CNT <= 0;
+						TRIG <= '0';
+						CURRENT_STATE <= MEASURE;
+						MEASURE_STATE <= WAITING;
+					END IF;
+					
+				when MEASURE =>
+					CURRENT_STATE <= MEASURE;
+					CASE (MEASURE_STATE) is
+						when WAITING =>
+							IF ECHO = '1' THEN
+								ECHO_CNT <= 1;
+								CM_CNT <= 0;
+								MEASURE_STATE <= COUNTING;
+							END IF;
+							
+						when COUNTING =>
+							ECHO_CNT <= ECHO_CNT + 1;
+							IF ECHO_CNT = 1471 THEN
+								CM_CNT <= CM_CNT + 1;
+								ECHO_CNT <= 0;
+							END IF;
+							
+							IF ECHO = '0' or CM_CNT = 1999 THEN
+								MEASURE_STATE <= ENDING;
+							END IF;
+
+						
+						when ENDING =>
+							DISTANCE <= CM_CNT/2;
+							CURRENT_STATE <= DISPLAY;
+					
+						when OTHERS =>
+							MEASURE_STATE <= ENDING;
+					END CASE;
+					
+				when DISPLAY =>
+					READY <= '1';
+					CURRENT_STATE <= RELEASE_WAIT;
+				
+				when RELEASE_WAIT =>
+					CURRENT_STATE <= RELEASE_WAIT;
+					IF START_M = '1' THEN
+						CURRENT_STATE <= IDLE_STATE;
+						BUSY <= '0';
+					END IF;
+				
+				when OTHERS =>
+					CURRENT_STATE <= IDLE_STATE;
+			END CASE;
+			
+		END IF;
+	END IF;
+END PROCESS;
+
+END MAIN;

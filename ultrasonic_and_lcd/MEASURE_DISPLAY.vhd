@@ -1,0 +1,117 @@
+library IEEE; 
+use IEEE.STD_LOGIC_1164.ALL; 
+use IEEE.std_logic_unsigned.all;
+use ieee.numeric_std.all;
+use work.CONVWERTER.all; 
+
+ENTITY MEASURE_DISPLAY is
+	PORT(
+	SENSOR_IN:	in INTEGER range 0 to 1000:=0;
+	NEW_DIST:	in STD_LOGIC;
+	CLOCK_50:	in STD_LOGIC;
+	STATUS:		in STD_LOGIC;
+	TO_DISP: 	out STD_LOGIC_VECTOR (7 downto 0);
+	TRIGGER:	out STD_LOGIC:='0';
+	COMMAND:	out STD_LOGIC;
+	RST_DISP:	out STD_LOGIC:='0'
+	);
+END ENTITY;
+
+ARCHITECTURE MAIN of MEASURE_DISPLAY is
+
+TYPE DISPLAY_STATE_T is (WAITING, HIGH_TRIGGER, LOW_TRIGGER, WRITE_1_DIGIT, WRITE_2_DIGIT, WRITE_3_DIGIT, 
+						WRITE_CHAR_C, WRITE_CHAR_M, BACK_TO_1LINE);
+
+SIGNAL CURRENT_STATE:	DISPLAY_STATE_T:=WAITING;
+SIGNAL NEXT_STATE:		DISPLAY_STATE_T;
+SIGNAL DISTANCE: 		INTEGER RANGE 0 TO 999:=0;
+SIGNAL D1, D2, D3:		INTEGER RANGE 0 TO 9:=0;
+
+BEGIN
+
+PROCESS(CLOCK_50)
+BEGIN
+	
+	IF rising_edge(CLOCK_50) THEN
+		CASE (CURRENT_STATE) is
+			when WAITING =>
+				TRIGGER <= '0';
+				IF NEW_DIST = '1' THEN
+					--DISTANCE <= DISTANCE + 1;		-- zamieniæ to pozniej na pomiar z sensora
+					DISTANCE <= SENSOR_IN;
+					SPLIT_NUMBER(DISTANCE, D3, D2, D1);
+					CURRENT_STATE <= WRITE_1_DIGIT;
+				END IF;
+				
+			when HIGH_TRIGGER =>
+				TRIGGER <= '1';
+				CURRENT_STATE <= LOW_TRIGGER;
+				
+			when LOW_TRIGGER =>
+				IF STATUS = '1' THEN
+					TRIGGER <= '0';
+					CURRENT_STATE <= NEXT_STATE;
+				END IF;
+				
+			when WRITE_1_DIGIT =>
+				IF STATUS = '0' THEN
+					TO_DISP <= INT_TO_ASCI(D1);
+					COMMAND <= '0';
+					
+					CURRENT_STATE <= HIGH_TRIGGER;
+					NEXT_STATE <= WRITE_2_DIGIT;
+				END IF;
+				
+			when WRITE_2_DIGIT =>
+				IF STATUS = '0' THEN
+					TO_DISP <= INT_TO_ASCI(D2);
+					COMMAND <= '0';
+					
+					CURRENT_STATE <= HIGH_TRIGGER;
+					NEXT_STATE <= WRITE_3_DIGIT;
+				END IF;
+				
+			when WRITE_3_DIGIT =>
+				IF STATUS = '0' THEN
+					TO_DISP <= INT_TO_ASCI(D3);
+					COMMAND <= '0';
+					
+					CURRENT_STATE <= HIGH_TRIGGER;
+					NEXT_STATE <= WRITE_CHAR_C;
+				END IF;
+			
+			when WRITE_CHAR_C =>
+				IF STATUS = '0' THEN
+					TO_DISP <= "01100011";	--asci 'c'
+					COMMAND <= '0';
+					
+					CURRENT_STATE <= HIGH_TRIGGER;
+					NEXT_STATE <= WRITE_CHAR_M;
+				END IF;
+				
+			when WRITE_CHAR_M =>
+				IF STATUS = '0' THEN
+					COMMAND <= '0';
+					TO_DISP <= "01101101";	--asci 'm'
+					
+					CURRENT_STATE <= HIGH_TRIGGER;
+					NEXT_STATE <= BACK_TO_1LINE;
+				END IF;
+				
+			when BACK_TO_1LINE =>
+				IF STATUS = '0' THEN
+					COMMAND <= '1';
+					TO_DISP <= "10000000";    -- x=0 y=0
+					
+					CURRENT_STATE <= HIGH_TRIGGER;
+					NEXT_STATE <= WAITING;
+				END IF;
+				
+			when OTHERS =>
+				CURRENT_STATE <= WAITING;
+				
+		END CASE;
+	END IF;
+END PROCESS;	
+	
+END MAIN;
